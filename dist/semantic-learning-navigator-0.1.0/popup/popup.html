@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Learning Navigator</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="app">
+      <header class="header">
+        <div>
+          <h1>学习主线导航</h1>
+          <p>管理当前页面的注意力投入</p>
+        </div>
+        <label class="switch" title="启用或关闭页面分析">
+          <input id="enabled" type="checkbox">
+          <span></span>
+        </label>
+      </header>
+
+      <section class="section">
+        <label for="stage">当前阶段</label>
+        <select id="stage">
+          <option value="beginner">入门</option>
+          <option value="course">能推进课程</option>
+          <option value="interview">面试导向</option>
+          <option value="engineering">工程导向</option>
+          <option value="math">数学导向</option>
+          <option value="research">研究导向</option>
+        </select>
+      </section>
+
+      <section class="section">
+        <label for="domain">学科主线</label>
+        <select id="domain">
+          <option value="auto">自动识别</option>
+          <option value="math">数学</option>
+          <option value="ml">机器学习</option>
+          <option value="dl">深度学习</option>
+          <option value="rl">强化学习</option>
+          <option value="os">操作系统</option>
+          <option value="compiler">编译原理</option>
+          <option value="economics">经济学</option>
+          <option value="physics">物理</option>
+        </select>
+      </section>
+
+      <section class="checks">
+        <label>
+          <input id="collapseC" type="checkbox">
+          <span>C 级内容自动折叠</span>
+        </label>
+        <label>
+          <input id="showSidebar" type="checkbox">
+          <span>显示固定边栏</span>
+        </label>
+      </section>
+
+      <button id="reanalyze" class="primary" type="button">分析当前页</button>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

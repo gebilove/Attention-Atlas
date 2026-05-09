@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Learning Navigator</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="app">
+      <header class="header">
+        <div>
+          <h1>学习主线导航</h1>
+          <p>面向课程、论文和技术阅读的注意力分配</p>
+        </div>
+        <label class="switch" title="启用或关闭页面分析">
+          <input id="enabled" type="checkbox">
+          <span></span>
+        </label>
+      </header>
+
+      <section class="mode-tabs" aria-label="产品模式">
+        <label>
+          <input type="radio" name="mode" value="learning">
+          <span>学习模式</span>
+        </label>
+        <label>
+          <input type="radio" name="mode" value="surfing">
+          <span>冲浪模式</span>
+        </label>
+      </section>
+
+      <section class="section">
+        <label for="stage">当前阶段</label>
+        <select id="stage">
+          <option value="beginner">入门</option>
+          <option value="course">能推进课程</option>
+          <option value="interview">面试导向</option>
+          <option value="engineering">工程导向</option>
+          <option value="math">数学导向</option>
+          <option value="research">研究导向</option>
+        </select>
+      </section>
+
+      <section class="checks">
+        <label>
+          <input id="collapseC" type="checkbox">
+          <span>C 级内容自动折叠</span>
+        </label>
+        <label>
+          <input id="showSidebar" type="checkbox">
+          <span>显示固定边栏</span>
+        </label>
+      </section>
+
+      <section class="section prompt-section">
+        <div class="prompt-head">
+          <label for="pagePrompt">当前网页提示词</label>
+          <div class="prompt-actions">
+            <button id="generatePrompt" class="mini-button" type="button">自动生成</button>
+            <button id="pastePrompt" class="mini-button" type="button">粘贴</button>
+          </div>
+        </div>
+        <select id="promptSelect" class="prompt-select" aria-label="选择提示词"></select>
+        <textarea id="pagePrompt" rows="5" placeholder="例如：这页我准备考试，优先标出必须会做题的概念和公式。"></textarea>
+      </section>
+
+      <button id="llmSettings" class="secondary" type="button">LLM 设置</button>
+      <button id="reanalyze" class="primary" type="button">分析当前页</button>
+    </main>
+    <script src="popup.js"></script>
+  </body>
+</html>

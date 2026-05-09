@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Semantic Learning Navigator Settings</title>
+    <link rel="stylesheet" href="options.css">
+  </head>
+  <body>
+    <main class="settings">
+      <header class="hero">
+        <div>
+          <h1>LLM 设置</h1>
+          <p>使用 OpenAI 或 Anthropic 模型做知识结构定位。</p>
+        </div>
+        <label class="switch">
+          <input id="enabled" type="checkbox">
+          <span></span>
+        </label>
+      </header>
+
+      <section class="panel">
+        <label for="provider">API Provider</label>
+        <select id="provider">
+          <option value="openai">OpenAI</option>
+          <option value="anthropic">Anthropic</option>
+        </select>
+
+        <label for="endpoint">API Endpoint</label>
+        <input id="endpoint" type="url" placeholder="https://api.openai.com/v1/chat/completions">
+
+        <label for="model">Model</label>
+        <input id="model" type="text" placeholder="gpt-4.1-mini">
+
+        <label for="apiKey">API Key</label>
+        <input id="apiKey" type="password" placeholder="sk-...；本地模型可留空">
+
+        <label for="temperature">Temperature</label>
+        <input id="temperature" type="number" min="0" max="1" step="0.1">
+
+        <label for="maxTokens">Max Tokens</label>
+        <input id="maxTokens" type="number" min="40" max="8192" step="1">
+
+        <label for="globalPrompt">全局默认提示词</label>
+        <textarea id="globalPrompt" rows="7" placeholder="例如：请优先识别考试/论文写作/复现实验相关重点；证明部分只在影响后续理解时标为 S。"></textarea>
+
+        <div class="actions">
+          <button id="save" class="primary" type="button">保存设置</button>
+          <button id="test" class="secondary" type="button">测试连接</button>
+        </div>
+
+        <p id="status" class="status" role="status"></p>
+      </section>
+
+      <section class="panel">
+        <h2>网站提示词管理</h2>
+        <p>一个提示词可以关联多个网站。网站请填写完整 origin，例如 <code>https://example.com</code>。</p>
+        <div id="promptList" class="prompt-list"></div>
+      </section>
+
+      <section class="notes">
+        <h2>说明</h2>
+        <p>内容脚本只发送知识块文本和当前模式，不会把 API key 注入网页。请求由扩展 background service worker 发出。</p>
+        <p>全局默认提示词会应用到所有网页；网站提示词按 origin 关联，例如同一个提示词可以同时作用于多个课程站点，并且优先级高于全局默认提示词。</p>
+        <p>OpenAI 会调用 Chat Completions，使用 <code>Authorization: Bearer</code>。Anthropic 会调用 Messages API，使用 <code>x-api-key</code> 与 <code>anthropic-version</code>。</p>
+        <p>切换 Provider 会自动填入对应默认 Endpoint 和 Model；如果你填了自定义代理地址，切换时不会覆盖。</p>
+      </section>
+    </main>
+    <script src="options.js"></script>
+  </body>
+</html>
