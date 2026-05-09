@@ -90,48 +90,6 @@ textarea {
   font: inherit;
 }
 
-.switch {
-  position: relative;
-  width: 50px;
-  height: 30px;
-  margin: 0;
-  flex: 0 0 auto;
-}
-
-.switch input {
-  position: absolute;
-  opacity: 0;
-}
-
-.switch span {
-  position: absolute;
-  inset: 0;
-  border-radius: 999px;
-  background: #cbd5e1;
-  cursor: pointer;
-}
-
-.switch span::before {
-  content: "";
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  width: 22px;
-  height: 22px;
-  border-radius: 999px;
-  background: #fff;
-  box-shadow: 0 2px 8px rgb(15 23 42 / 20%);
-  transition: transform 160ms ease;
-}
-
-.switch input:checked + span {
-  background: #172033;
-}
-
-.switch input:checked + span::before {
-  transform: translateX(20px);
-}
-
 .actions {
   display: flex;
   gap: 10px;
@@ -144,6 +102,27 @@ button {
   border-radius: 7px;
   cursor: pointer;
   font: 750 14px/1 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
+.button-busy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid rgb(37 99 235 / 22%);
+  border-top-color: #2563eb;
+  border-radius: 999px;
+  animation: spin 780ms linear infinite;
 }
 
 .primary {
@@ -159,9 +138,30 @@ button {
 }
 
 .status {
+  display: grid;
+  gap: 7px;
   min-height: 22px;
   margin-top: 12px;
   font-weight: 700;
+}
+
+.status span {
+  position: relative;
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dbe4f0;
+}
+
+.status span::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 42%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #14b8a6);
+  animation: progress 1.25s ease-in-out infinite;
 }
 
 .status[data-kind="ok"] {
@@ -219,4 +219,24 @@ button {
   border: 1px solid #fecaca;
   background: #fff;
   color: #b91c1c;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes progress {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  50% {
+    transform: translateX(70%);
+  }
+
+  100% {
+    transform: translateX(240%);
+  }
 }

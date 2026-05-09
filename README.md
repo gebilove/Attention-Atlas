@@ -30,8 +30,8 @@ The product is built around attention allocation, with two modes:
 - Prompt library management: one prompt can be associated with multiple website origins.
 - Website-level prompt auto-generation from the current webpage's title, headings, detected domain, and salient terms. When a website has no prompt, the content script asks whether to generate one before analyzing.
 - Page-level analysis cache. Parsed S/A/B/C results are saved locally and restored when the user returns to the same page with the same mode, stage, page prompt, auto-detected domain, and block fingerprint.
-- Stage-aware scoring for beginner, course, interview, engineering, math, and research modes.
-- Auto-detected mainline hints for math, machine learning, operating systems, compilers, deep learning, economics, and physics. Users guide emphasis through page-level prompts rather than a domain selector.
+- LLM-only attention decisions for beginner, course, interview, engineering, math, and research modes.
+- LLM-returned page mainline shown in the sidebar. Users guide emphasis through page-level prompts rather than a domain selector.
 - S/A/B/C visual treatment:
   - S: strong highlight and pinned sidebar entry.
   - A: medium emphasis.
@@ -48,6 +48,6 @@ The product is built around attention allocation, with two modes:
 
 ## Notes
 
-This version supports a real LLM when configured in the extension settings. If no model is configured, or the model request fails, it falls back to the deterministic local heuristic engine.
+This version always uses the configured LLM for S/A/B/C attention analysis. If the model request fails or the model returns invalid JSON, the extension shows an error instead of generating local heuristic results.
 
 PDF support is a local MVP. It works best for text PDFs with extractable embedded text. Scanned PDFs, heavily encoded academic PDFs, and PDFs blocked by site permissions may need a future pdf.js-based parser.

@@ -23,7 +23,8 @@ const controls = {
   generatePrompt: document.querySelector("#generatePrompt"),
   pastePrompt: document.querySelector("#pastePrompt"),
   llmSettings: document.querySelector("#llmSettings"),
-  reanalyze: document.querySelector("#reanalyze")
+  reanalyze: document.querySelector("#reanalyze"),
+  busyStatus: document.querySelector("#busyStatus")
 };
 
 chrome.storage.sync.get(DEFAULT_SETTINGS, (settings) => {
@@ -55,7 +56,17 @@ controls.mode.forEach((control) => {
   });
 });
 
-controls.reanalyze.addEventListener("click", () => saveAndNotify({ forceRefresh: true }));
+controls.reanalyze.addEventListener("click", async () => {
+  const label = currentMode() === "surfing" ? "定位中" : "分析中";
+  setButtonBusy(controls.reanalyze, true, label);
+  showBusy(`${label}，页面内会显示进度。`);
+  saveAndNotify({ forceRefresh: true, afterNotify: () => {
+    setTimeout(() => {
+      setButtonBusy(controls.reanalyze, false);
+      hideBusy();
+    }, 900);
+  } });
+});
 controls.llmSettings.addEventListener("click", () => chrome.runtime.openOptionsPage());
 
 function saveAndNotify(options = {}) {
@@ -71,12 +82,22 @@ function saveAndNotify(options = {}) {
   chrome.storage.sync.set(settings, () => {
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
       if (!tab?.id) return;
-      chrome.tabs.sendMessage(tab.id, {
+      sendMessageToActiveTab(tab.id, {
         type: "SLN_SETTINGS_UPDATED",
         settings,
         forceRefresh: Boolean(options.forceRefresh)
       });
+      options.afterNotify?.();
     });
+  });
+}
+
+function sendMessageToActiveTab(tabId, message) {
+  chrome.tabs.sendMessage(tabId, message, () => {
+    // Content scripts are not available on every active tab (chrome:// pages,
+    // extension pages, or tabs loaded before install). Reading lastError
+    // consumes Chrome's expected "Receiving end does not exist" failure.
+    void chrome.runtime.lastError;
   });
 }
 
@@ -184,13 +205,13 @@ async function pastePagePrompt() {
 }
 
 function generatePagePrompt() {
-  controls.generatePrompt.disabled = true;
-  const originalText = controls.generatePrompt.textContent;
-  controls.generatePrompt.textContent = "生成中";
+  setButtonBusy(controls.generatePrompt, true, "生成中");
+  showBusy("正在生成当前网页提示词。");
 
   chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
     if (!tab?.id) {
-      restoreGenerateButton(originalText);
+      setButtonBusy(controls.generatePrompt, false);
+      hideBusy();
       return;
     }
 
@@ -201,20 +222,41 @@ function generatePagePrompt() {
         stage: controls.stage.value
       }
     }, async (response) => {
-      restoreGenerateButton(originalText);
+      setButtonBusy(controls.generatePrompt, false);
       if (chrome.runtime.lastError || !response?.ok || !response.prompt) {
+        hideBusy();
         controls.pagePrompt.focus();
         return;
       }
       controls.pagePrompt.value = response.prompt;
       await savePagePromptAndNotify();
+      hideBusy();
     });
   });
 }
 
-function restoreGenerateButton(text) {
-  controls.generatePrompt.disabled = false;
-  controls.generatePrompt.textContent = text;
+function setButtonBusy(button, busy, label = "") {
+  if (!button.dataset.idleText) button.dataset.idleText = button.textContent;
+  button.disabled = busy;
+  if (busy) {
+    button.innerHTML = `<span class="button-busy"><span class="spinner" aria-hidden="true"></span><span>${escapeHtml(label)}</span></span>`;
+    return;
+  }
+  button.textContent = button.dataset.idleText;
+}
+
+function showBusy(message, kind = "") {
+  controls.busyStatus.hidden = false;
+  controls.busyStatus.dataset.kind = kind;
+  controls.busyStatus.innerHTML = kind === "error"
+    ? escapeHtml(message)
+    : `${escapeHtml(message)}<span aria-hidden="true"></span>`;
+}
+
+function hideBusy() {
+  controls.busyStatus.hidden = true;
+  controls.busyStatus.dataset.kind = "";
+  controls.busyStatus.textContent = "";
 }
 
 function renderPromptSelect() {

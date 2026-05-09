@@ -19,7 +19,7 @@ Semantic Learning Navigator has two product modes:
 Browser Extension
   -> DOM knowledge block segmentation
   -> PDF text extraction when the current document is a PDF
-  -> Knowledge structure positioning via user-configured LLM, with local heuristic fallback
+  -> Knowledge structure positioning via user-configured LLM
   -> Stage-aware learning priority
   -> Dependency graph construction
   -> Page rendering and sidebar guidance
@@ -31,23 +31,28 @@ Each analyzed block should produce:
 
 ```json
 {
-  "importance": "S/A/B/C",
-  "role": "核心概念/实现细节/理论证明/背景知识",
-  "required_depth": "The understanding depth needed now.",
-  "can_skip_now": true,
-  "future_dependency": "Where the learner will get blocked later if this is missing.",
-  "why_it_matters": "Why this block deserves the recommended attention.",
-  "minimum_mastery": "Lowest standard needed to continue.",
-  "continue_status": "✅ 可以继续下一章 / ❌ 必须真正理解"
+  "mainline": ["page-level reading line from the LLM"],
+  "analyses": [
+    {
+      "importance": "S/A/B/C",
+      "role": "核心概念/实现细节/理论证明/背景知识",
+      "required_depth": "The understanding depth needed now.",
+      "can_skip_now": true,
+      "future_dependency": "Where the learner will get blocked later if this is missing.",
+      "why_it_matters": "Why this block deserves the recommended attention.",
+      "minimum_mastery": "Lowest standard needed to continue.",
+      "continue_status": "✅ 可以继续下一章 / ❌ 必须真正理解"
+    }
+  ]
 }
 ```
 
 ## Analyzer Contract
 
-The current MVP supports two analyzer paths:
+The current MVP uses one analyzer path:
 
 - LLM path: `src/content.js` sends knowledge blocks to `src/background.js`; the background service worker calls the user's configured endpoint and returns structured JSON. Supported providers are OpenAI Chat Completions and Anthropic Messages. OpenAI requests use `Authorization: Bearer`; Anthropic requests use `x-api-key`, `anthropic-version`, and the Messages API body (`model`, `max_tokens`, `messages`).
-- Local fallback: deterministic analyzer in `src/content.js`, used when LLM is disabled, unavailable, or returns invalid JSON.
+- Failure behavior: if the LLM request fails or the JSON does not satisfy the schema, the content script shows an error panel and does not generate local heuristic results.
 
 Custom prompts exist at two levels:
 
@@ -63,15 +68,9 @@ The extension persists two kinds of page state in `chrome.storage.local`:
 - Progress state: checklist completion and S-level active recall answers.
 - Analysis cache: structured S/A/B/C analysis results for a page.
 
-Analysis cache is keyed by URL path, product mode, stage, auto-detected domain, and website-level prompt hash. It also stores a block fingerprint, so stale results are ignored when the page content changes. The popup's "reanalyze" action forces a fresh model/local analysis and overwrites the cache.
+Analysis cache is keyed by URL path, product mode, stage, auto-detected domain, and website-level prompt hash. It also stores a block fingerprint and cache schema version, so stale or pre-LLM-only results are ignored when the page content changes. The popup's "reanalyze" action forces a fresh model analysis and overwrites the cache.
 
-The local analyzer is intentionally shaped as a replaceable function:
-
-```js
-analyzeBlock(block, stage, domain)
-```
-
-A model-backed analyzer should preserve this contract and change only the implementation behind it. The model prompt should ask for knowledge structure positioning, not summary:
+The model prompt should ask for knowledge structure positioning, not summary:
 
 - Where is this block in the knowledge system?
 - Is it part of the main line for the selected stage?
@@ -90,18 +89,9 @@ Supported stages:
 - `math`: prioritize definitions, theorem conditions, derivations, and proofs.
 - `research`: prioritize proofs, assumptions, limitations, and dependency structure.
 
-## Domain Mainlines
+## Page Mainline
 
-The built-in mainlines are deliberately compact:
-
-- Math: 定义 -> 直觉 -> 定理 -> 推导
-- Machine learning: 数据 -> 损失 -> 优化 -> 泛化
-- Operating systems: 抽象 -> 调度 -> 内存 -> 并发
-- Compilers: Token -> AST -> IR -> 优化
-- Deep learning: 表示 -> 反向传播 -> 架构
-- Economics: 激励 -> 均衡 -> 博弈
-- Physics: 守恒 -> 状态 -> 演化
-- Reinforcement learning: 状态/动作 -> 价值函数 -> Bellman -> TD -> 策略改进
+The sidebar mainline is returned by the configured LLM for the current page. The content script does not display a built-in domain mainline, so generic site pages are not forced into a compiler, ML, math, or other local template.
 
 ## Rendering Rules
 

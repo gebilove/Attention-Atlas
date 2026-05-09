@@ -204,6 +204,27 @@ textarea {
   opacity: 0.65;
 }
 
+.button-busy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgb(37 99 235 / 22%);
+  border-top-color: #2563eb;
+  border-radius: 999px;
+  animation: spin 780ms linear infinite;
+}
+
+.primary .spinner {
+  border-color: rgb(255 255 255 / 34%);
+  border-top-color: #fff;
+}
+
 .checks {
   display: grid;
   gap: 8px;
@@ -240,6 +261,12 @@ textarea {
   background: #24324d;
 }
 
+.primary:disabled,
+.secondary:disabled {
+  cursor: wait;
+  opacity: 0.72;
+}
+
 .secondary {
   width: 100%;
   min-height: 38px;
@@ -254,4 +281,60 @@ textarea {
 
 .secondary:hover {
   background: #f1f5f9;
+}
+
+.busy-status {
+  display: grid;
+  gap: 7px;
+  margin-top: 10px;
+  color: #475467;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.busy-status[data-kind="error"] {
+  color: #b42318;
+}
+
+.busy-status[hidden] {
+  display: none;
+}
+
+.busy-status span {
+  position: relative;
+  display: block;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #dbe4f0;
+}
+
+.busy-status span::after {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 42%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #2563eb, #14b8a6);
+  animation: progress 1.25s ease-in-out infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes progress {
+  0% {
+    transform: translateX(-110%);
+  }
+
+  50% {
+    transform: translateX(70%);
+  }
+
+  100% {
+    transform: translateX(240%);
+  }
 }

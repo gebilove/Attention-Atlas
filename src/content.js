@@ -9,6 +9,9 @@
   };
 
   const PROMPT_LIBRARY_KEY = "slnPromptLibrary";
+  const ANALYSIS_CACHE_VERSION = 2;
+  const CONTENT_ANALYSIS_BATCH_SIZE = 10;
+  const CONTENT_ANALYSIS_BATCH_TIMEOUT_MS = 75000;
 
   const STAGES = {
     beginner: "入门",
@@ -17,17 +20,6 @@
     engineering: "工程导向",
     math: "数学导向",
     research: "研究导向"
-  };
-
-  const DOMAIN_MAINLINES = {
-    math: ["定义", "直觉", "定理", "推导"],
-    ml: ["数据", "损失", "优化", "泛化"],
-    os: ["抽象", "调度", "内存", "并发"],
-    compiler: ["Token", "AST", "IR", "优化"],
-    dl: ["表示", "反向传播", "架构"],
-    economics: ["激励", "均衡", "博弈"],
-    physics: ["守恒", "状态", "演化"],
-    rl: ["状态/动作", "价值函数", "Bellman", "TD", "策略改进"]
   };
 
   const DOMAIN_TERMS = {
@@ -41,27 +33,6 @@
     rl: ["bellman", "policy", "reward", "q-learning", "dqn", "td", "value function", "强化学习", "价值函数", "奖励"]
   };
 
-  const ROLE_PATTERNS = [
-    {
-      role: "理论证明",
-      patterns: ["proof", "prove", "lemma", "theorem", "corollary", "convergence", "证明", "定理", "引理", "收敛", "推导"]
-    },
-    {
-      role: "实现细节",
-      patterns: ["api", "install", "implementation", "parameter", "config", "runtime", "gpu", "cuda", "代码", "实现", "参数", "配置", "接口", "优化"]
-    },
-    {
-      role: "核心概念",
-      patterns: ["definition", "intuition", "concept", "principle", "objective", "loss", "state", "policy", "bellman", "定义", "直觉", "概念", "原理", "目标", "损失", "价值", "策略"]
-    },
-    {
-      role: "背景知识",
-      patterns: ["history", "background", "motivation", "related work", "example", "背景", "历史", "动机", "例子"]
-    }
-  ];
-
-  const DETAIL_TRAPS = ["proof", "derive", "boundary", "edge case", "optimization", "api", "hyperparameter", "implementation detail", "证明", "边界", "特殊情况", "符号", "推导", "工程优化", "API", "超参数"];
-
   let state = {
     settings: DEFAULT_SETTINGS,
     pagePrompt: "",
@@ -74,6 +45,7 @@
     activeBlockId: "",
     activeBlockRaf: 0,
     currentDomain: "",
+    currentMainline: [],
     promptId: "",
     analysisContext: null
   };
@@ -129,30 +101,42 @@
       return;
     }
 
-    const domain = state.settings.domain === "auto" ? detectDomain(document.body.innerText) : state.settings.domain;
-    state.currentDomain = domain;
-    const stage = activeStage();
-    const elements = collectKnowledgeBlocks();
-    const blocks = elements.map((element, index) => {
-      const block = {
-        id: `sln-${index + 1}`,
-        element,
-        text: normalizeText(element.innerText || element.textContent || ""),
-        tag: element.tagName.toLowerCase(),
-        domain
-      };
-      return block;
-    }).filter((block) => block.text.length > 0);
-    const analyses = await analyzeBlocksWithCache(blocks, stage, domain, options);
-    state.analysisContext = makeAnalysisContext(stage, domain);
+    try {
+      renderAnalysisLoading("正在准备页面分析", "正在抽取当前页面的知识块。");
+      const domain = state.settings.domain === "auto" ? detectDomain(document.body.innerText) : state.settings.domain;
+      state.currentDomain = domain;
+      const stage = activeStage();
+      const elements = await waitForKnowledgeBlocks();
+      const blocks = elements.map((element, index) => {
+        const block = {
+          id: `sln-${index + 1}`,
+          element,
+          text: normalizeText(element.innerText || element.textContent || ""),
+          tag: element.tagName.toLowerCase(),
+          domain
+        };
+        return block;
+      }).filter((block) => block.text.length > 0);
+      if (blocks.length === 0) throw new Error("没有抽取到可分析的页面内容块。");
+      state.currentMainline = [];
+      updateAnalysisLoading(
+        state.settings.mode === "surfing" ? "正在定位页面重点" : "正在分析学习主线",
+        `已抽取 ${blocks.length} 个内容块，正在等待 LLM 返回结果。`
+      );
+      const analyses = await analyzeBlocksWithCache(blocks, stage, domain, options);
+      state.analysisContext = makeAnalysisContext(stage, domain);
 
-    loadProgress((progress) => {
-      state.progress = progress;
-      state.blocks = analyses;
-      renderBlocks(analyses);
-      renderSidebar(analyses, domain);
-      startActiveBlockTracking();
-    });
+      loadProgress((progress) => {
+        removeAnalysisLoading();
+        state.progress = progress;
+        state.blocks = analyses;
+        renderBlocks(analyses);
+        renderSidebar(analyses, domain);
+        startActiveBlockTracking();
+      });
+    } catch (error) {
+      renderAnalysisError(error);
+    }
   }
 
   async function runPdfMode(options = {}) {
@@ -178,10 +162,16 @@
         };
         return block;
       }).filter((block) => block.text.length > 0);
+      state.currentMainline = [];
+      renderAnalysisLoading(
+        state.settings.mode === "surfing" ? "正在定位 PDF 重点" : "正在分析 PDF 主线",
+        `已提取 ${blocks.length} 个 PDF 内容块，正在等待 LLM 返回结果。`
+      );
       const analyses = await analyzeBlocksWithCache(blocks, stage, domain, options);
       state.analysisContext = makeAnalysisContext(stage, domain);
 
       loadProgress((progress) => {
+        removeAnalysisLoading();
         state.progress = progress;
         state.blocks = analyses;
         renderBlocks(analyses);
@@ -213,6 +203,7 @@
         <section class="sln-pdf-status">
           <h1>正在读取 PDF</h1>
           <p>正在提取文本块并准备学习模式分析。</p>
+          ${renderLoadingMarkup("读取中")}
         </section>
       </main>
     `;
@@ -228,6 +219,85 @@
           <p>扫描版 PDF、复杂字体编码 PDF 或跨域受限 PDF 需要后续接入 pdf.js 才能稳定支持。</p>
         </section>
       </main>
+    `;
+  }
+
+  function renderAnalysisError(error) {
+    cleanup();
+    const message = error.message || "请检查 LLM 设置、网络连接或模型返回的 JSON schema。";
+    const panel = document.createElement("section");
+    panel.id = "sln-sidebar";
+    panel.innerHTML = `
+      <div class="sln-panel-header">
+        <h2 class="sln-panel-title">LLM 分析失败</h2>
+        <div class="sln-panel-actions">
+          <button class="sln-icon-button" type="button" data-sln-action="rerun" title="重新分析">↻</button>
+          <button class="sln-icon-button" type="button" data-sln-action="hide" title="隐藏">×</button>
+        </div>
+      </div>
+      <div class="sln-panel-body">
+        <article class="sln-card">
+          <p><strong>当前已启用 LLM-only 分析。</strong></p>
+          <p>${escapeHtml(message)}</p>
+          <p>不会再使用本地启发式算法生成替代结果。</p>
+          <button class="sln-settings-button" type="button" data-sln-action="settings">打开 LLM 设置</button>
+        </article>
+      </div>
+    `;
+    document.body.appendChild(panel);
+    panel.querySelector("[data-sln-action='hide']").addEventListener("click", () => panel.classList.add("sln-hidden"));
+    panel.querySelector("[data-sln-action='rerun']").addEventListener("click", () => {
+      cleanup();
+      run({ forceRefresh: true });
+    });
+    panel.querySelector("[data-sln-action='settings']")?.addEventListener("click", () => {
+      chrome.runtime.sendMessage({ type: "SLN_OPEN_OPTIONS" });
+    });
+  }
+
+  function renderAnalysisLoading(title, message) {
+    cleanup();
+    const panel = document.createElement("section");
+    panel.id = "sln-sidebar";
+    panel.dataset.slnLoading = "true";
+    panel.innerHTML = `
+      <div class="sln-panel-header">
+        <h2 class="sln-panel-title">${escapeHtml(title)}</h2>
+        <div class="sln-panel-actions">
+          <button class="sln-icon-button" type="button" data-sln-action="hide" title="隐藏">×</button>
+        </div>
+      </div>
+      <div class="sln-panel-body">
+        <article class="sln-card sln-loading-card">
+          ${renderLoadingMarkup("分析中")}
+          <p data-sln-loading-message>${escapeHtml(message)}</p>
+        </article>
+      </div>
+    `;
+    document.body.appendChild(panel);
+    panel.querySelector("[data-sln-action='hide']").addEventListener("click", () => panel.classList.add("sln-hidden"));
+  }
+
+  function updateAnalysisLoading(title, message) {
+    const panel = document.querySelector("#sln-sidebar[data-sln-loading='true']");
+    if (!panel) return;
+    const heading = panel.querySelector(".sln-panel-title");
+    const body = panel.querySelector("[data-sln-loading-message]");
+    if (heading) heading.textContent = title;
+    if (body) body.textContent = message;
+  }
+
+  function removeAnalysisLoading() {
+    document.querySelector("#sln-sidebar[data-sln-loading='true']")?.remove();
+  }
+
+  function renderLoadingMarkup(label) {
+    return `
+      <div class="sln-loading" role="status" aria-live="polite">
+        <span class="sln-spinner" aria-hidden="true"></span>
+        <span>${escapeHtml(label)}</span>
+      </div>
+      <div class="sln-progress" aria-hidden="true"><span></span></div>
     `;
   }
 
@@ -403,96 +473,200 @@
 
   function collectKnowledgeBlocks() {
     const selectors = [
-      "main h1", "main h2", "main h3", "main p", "main li", "main pre", "main blockquote", "main table",
-      "article h1", "article h2", "article h3", "article p", "article li", "article pre", "article blockquote", "article table",
-      "[role='main'] h1", "[role='main'] h2", "[role='main'] h3", "[role='main'] p", "[role='main'] li", "[role='main'] pre",
+      "h1", "h2", "h3", "h4", "p", "li", "pre", "blockquote", "table",
       ".math", ".katex", "mjx-container", "[data-mathml]",
-      "h1", "h2", "h3", "p", "pre", "blockquote", "table"
+      "section", "article", "div"
     ];
     const seen = new Set();
-    return Array.from(document.querySelectorAll(selectors.join(",")))
+    return collectContentRoots()
+      .flatMap((root) => Array.from(root.querySelectorAll(selectors.join(","))))
       .filter((element) => {
         if (seen.has(element)) return false;
         seen.add(element);
-        if (element.closest("#sln-sidebar,.sln-tooltip,nav,header,footer,aside,script,style")) return false;
-        const text = normalizeText(element.innerText || element.textContent || "");
-        const rect = element.getBoundingClientRect();
-        return text.length >= 24 && rect.width > 120 && rect.height > 12;
+        return isKnowledgeBlockCandidate(element);
       })
       .slice(0, 80);
   }
 
-  function analyzeBlock(block, stage, domain) {
-    const text = block.text;
-    const lower = text.toLowerCase();
-    const role = detectRole(lower, block.tag);
-    const trapScore = countMatches(lower, DETAIL_TRAPS);
-    const mainline = DOMAIN_MAINLINES[domain] || inferMainlineFromText(lower);
-    const mainlineHit = countMatches(lower, mainline.map((item) => item.toLowerCase()));
-    const conceptScore = countMatches(lower, ROLE_PATTERNS.find((entry) => entry.role === "核心概念").patterns);
-    const structuralScore = block.tag.match(/^h[1-3]$/) ? 2 : 0;
-    const codePenalty = block.tag === "pre" ? stage === "engineering" ? 1 : -1 : 0;
+  async function waitForKnowledgeBlocks() {
+    let blocks = collectKnowledgeBlocks();
+    if (blocks.length > 0) return blocks;
 
-    let score = conceptScore * 2 + mainlineHit * 2 + structuralScore + codePenalty;
+    await new Promise((resolve) => {
+      const observer = new MutationObserver(() => {
+        blocks = collectKnowledgeBlocks();
+        if (blocks.length > 0) {
+          observer.disconnect();
+          resolve();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+      window.setTimeout(() => {
+        observer.disconnect();
+        resolve();
+      }, 5000);
+    });
 
-    if (role === "理论证明") score += proofWeight(stage);
-    if (role === "实现细节") score += implementationWeight(stage);
-    if (role === "背景知识") score -= 1;
-    if (trapScore > 0 && !["math", "research", "engineering"].includes(stage)) score -= trapScore;
-    if (mentionsDependency(lower)) score += 2;
+    return blocks.length > 0 ? blocks : collectKnowledgeBlocks();
+  }
 
-    const importance = toImportance(score);
-    const canSkipNow = importance === "C" || (importance === "B" && trapScore > 0);
-    const minimum = minimumMastery(role, importance, stage);
+  function collectContentRoots() {
+    const selectors = [
+      "main",
+      "article",
+      "[role='main']",
+      ".markdown-body",
+      ".prose",
+      ".content",
+      ".chapter",
+      ".chapter-content",
+      ".article-content",
+      ".doc-content",
+      ".post-content"
+    ];
+    const roots = Array.from(document.querySelectorAll(selectors.join(",")))
+      .filter((element) => !isExcludedContentElement(element));
+    return roots.length > 0 ? roots : [document.body];
+  }
 
-    return {
-      importance,
-      role,
-      required_depth: requiredDepth(importance, role, stage),
-      can_skip_now: canSkipNow,
-      future_dependency: dependencyMessage(importance, role, mainline, lower),
-      why_it_matters: whyItMatters(importance, role, stage),
-      minimum_mastery: minimum,
-      check_question: state.settings.mode === "learning" ? makeCheckQuestion(role, importance, domain, text) : "",
-      continue_status: continueStatus(importance, canSkipNow),
-      detail_trap: trapScore > 0
-    };
+  function isKnowledgeBlockCandidate(element) {
+    if (isExcludedContentElement(element)) return false;
+    if (element.matches("button,input,select,textarea,label,svg,canvas,iframe,video,audio")) return false;
+
+    const text = normalizeText(element.innerText || element.textContent || "");
+    if (text.length < 24) return false;
+
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 120 || rect.height <= 12) return false;
+    if (isMostlyInteractive(element)) return false;
+    if (isContainerWithoutDirectText(element, text)) return false;
+
+    return true;
+  }
+
+  function isExcludedContentElement(element) {
+    return Boolean(element.closest([
+      "#sln-sidebar",
+      "#sln-prompt-start",
+      ".sln-tooltip",
+      "nav",
+      "header",
+      "footer",
+      "aside",
+      "script",
+      "style",
+      "noscript",
+      "[aria-hidden='true']",
+      "[hidden]"
+    ].join(",")));
+  }
+
+  function isMostlyInteractive(element) {
+    const interactiveText = Array.from(element.querySelectorAll("a,button,input,select,textarea"))
+      .map((item) => normalizeText(item.innerText || item.textContent || item.value || ""))
+      .join(" ");
+    const text = normalizeText(element.innerText || element.textContent || "");
+    return interactiveText.length > 0 && interactiveText.length / Math.max(text.length, 1) > 0.6;
+  }
+
+  function isContainerWithoutDirectText(element, text) {
+    if (!element.matches("div,section,article")) return false;
+    const directText = Array.from(element.childNodes)
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => normalizeText(node.textContent || ""))
+      .join(" ");
+    if (directText.length >= 24) return false;
+
+    const childBlocks = Array.from(element.children).filter((child) => {
+      if (isExcludedContentElement(child)) return false;
+      if (!child.matches("h1,h2,h3,h4,p,li,pre,blockquote,table,section,article,div")) return false;
+      const childText = normalizeText(child.innerText || child.textContent || "");
+      return childText.length >= 24;
+    });
+
+    if (childBlocks.length >= 2) return true;
+    if (childBlocks.length === 1) {
+      const childText = normalizeText(childBlocks[0].innerText || childBlocks[0].textContent || "");
+      return childText.length / Math.max(text.length, 1) > 0.75;
+    }
+    return false;
   }
 
   async function analyzeBlocks(blocks, stage, domain) {
-    const fallback = blocks.map((block) => ({
-      ...block,
-      analysis: {
-        ...analyzeBlock(block, stage, domain),
-        source: "local"
-      }
-    }));
-
     try {
-      const response = await chrome.runtime.sendMessage({
-        type: "SLN_ANALYZE_BLOCKS",
-        payload: {
-          mode: state.settings.mode,
-          stage,
-          domain,
-          pagePrompt: state.pagePrompt,
-          pageUrl: `${location.origin}${location.pathname}`,
-          blocks: blocks.map((block) => ({
-            id: block.id,
-            tag: block.tag,
-            text: block.text
-          }))
-        }
+      const analyses = [];
+      state.currentMainline = [];
+
+      for (let index = 0; index < blocks.length; index += CONTENT_ANALYSIS_BATCH_SIZE) {
+        const batch = blocks.slice(index, index + CONTENT_ANALYSIS_BATCH_SIZE);
+        updateAnalysisLoading(
+          state.settings.mode === "surfing" ? "正在定位页面重点" : "正在分析学习主线",
+          `正在分析第 ${index + 1}-${index + batch.length} / ${blocks.length} 个内容块。`
+        );
+        const response = await sendRuntimeMessageWithTimeout({
+          type: "SLN_ANALYZE_BLOCKS",
+          payload: {
+            mode: state.settings.mode,
+            stage,
+            domain: state.settings.domain === "auto" ? "" : domain,
+            pagePrompt: state.pagePrompt,
+            pageUrl: `${location.origin}${location.pathname}`,
+            blocks: batch.map((block) => ({
+              id: block.id,
+              tag: block.tag,
+              text: block.text
+            }))
+          }
+        });
+        if (!response?.ok) throw new Error(response?.error || "LLM 分析失败。");
+        if (!Array.isArray(response.analyses)) throw new Error("LLM 没有返回 analyses 数组。");
+        mergeLlmMainline(response.mainline);
+        analyses.push(...response.analyses);
+      }
+
+      const llmById = new Map(analyses.map((analysis) => [analysis.id, analysis]));
+      return blocks.map((block) => {
+        const llmAnalysis = llmById.get(block.id);
+        if (!llmAnalysis) throw new Error(`LLM 结果缺少内容块 ${block.id}。`);
+        return {
+          ...block,
+          analysis: normalizeLlmAnalysis(llmAnalysis)
+        };
       });
-      if (!response?.ok || !Array.isArray(response.analyses)) return fallback;
-      const llmById = new Map(response.analyses.map((analysis) => [analysis.id, analysis]));
-      return fallback.map((block) => ({
-        ...block,
-        analysis: normalizeLlmAnalysis(llmById.get(block.id), block.analysis, block, domain)
-      }));
-    } catch {
-      return fallback;
+    } catch (error) {
+      throw new Error(error.message || "LLM 分析失败。");
     }
+  }
+
+  function sendRuntimeMessageWithTimeout(message, timeoutMs = CONTENT_ANALYSIS_BATCH_TIMEOUT_MS) {
+    return new Promise((resolve, reject) => {
+      let finished = false;
+      const timer = window.setTimeout(() => {
+        if (finished) return;
+        finished = true;
+        reject(new Error(`LLM 分析请求超过 ${Math.round(timeoutMs / 1000)} 秒没有返回。请检查模型端点、网络或降低 max tokens。`));
+      }, timeoutMs);
+
+      chrome.runtime.sendMessage(message, (response) => {
+        if (finished) return;
+        finished = true;
+        window.clearTimeout(timer);
+        const lastError = chrome.runtime.lastError;
+        if (lastError) {
+          reject(new Error(lastError.message || "扩展后台没有返回 LLM 分析结果。"));
+          return;
+        }
+        resolve(response);
+      });
+    });
+  }
+
+  function mergeLlmMainline(value) {
+    normalizeLlmMainline(value).forEach((item) => {
+      if (!state.currentMainline.includes(item) && state.currentMainline.length < 6) {
+        state.currentMainline.push(item);
+      }
+    });
   }
 
   async function analyzeBlocksWithCache(blocks, stage, domain, options = {}) {
@@ -511,7 +685,10 @@
     const items = await chrome.storage.local.get({ [key]: null });
     const cached = items[key];
     if (!cached || !Array.isArray(cached.analyses)) return null;
+    if (cached.version !== ANALYSIS_CACHE_VERSION) return null;
     if (cached.fingerprint !== blocksFingerprint(blocks)) return null;
+    if (cached.analyses.some((item) => item.analysis?.source !== "llm")) return null;
+    state.currentMainline = normalizeLlmMainline(cached.mainline);
 
     const cachedById = new Map(cached.analyses.map((item) => [item.id, item.analysis]));
     const restored = blocks.map((block) => {
@@ -524,12 +701,13 @@
 
   async function saveAnalysisCache(analyses, stage, domain) {
     const cache = {
-      version: 1,
+      version: ANALYSIS_CACHE_VERSION,
       savedAt: Date.now(),
       url: `${location.origin}${location.pathname}`,
       mode: state.settings.mode,
       stage,
       domain,
+      mainline: normalizeLlmMainline(state.currentMainline),
       pagePromptHash: stableHash(state.pagePrompt),
       fingerprint: blocksFingerprint(analyses),
       analyses: analyses.map((block) => ({
@@ -568,47 +746,48 @@
     return (hash >>> 0).toString(36);
   }
 
-  function normalizeLlmAnalysis(llmAnalysis, fallback, block, domain) {
-    if (!llmAnalysis || typeof llmAnalysis !== "object") return fallback;
-    const importance = ["S", "A", "B", "C"].includes(llmAnalysis.importance) ? llmAnalysis.importance : fallback.importance;
-    const role = ["核心概念", "实现细节", "理论证明", "背景知识"].includes(llmAnalysis.role) ? llmAnalysis.role : fallback.role;
-    const canSkipNow = typeof llmAnalysis.can_skip_now === "boolean" ? llmAnalysis.can_skip_now : fallback.can_skip_now;
-    const detailTrap = typeof llmAnalysis.detail_trap === "boolean" ? llmAnalysis.detail_trap : fallback.detail_trap;
+  function normalizeLlmAnalysis(llmAnalysis) {
+    if (!llmAnalysis || typeof llmAnalysis !== "object") throw new Error("LLM 返回了无效的分析对象。");
+    const importance = String(llmAnalysis.importance || "").trim();
+    const role = String(llmAnalysis.role || "").trim();
+    if (!["S", "A", "B", "C"].includes(importance)) throw new Error("LLM 返回了无效的 importance。");
+    if (!["核心概念", "实现细节", "理论证明", "背景知识"].includes(role)) throw new Error("LLM 返回了无效的 role。");
+    if (typeof llmAnalysis.can_skip_now !== "boolean") throw new Error("LLM 返回的 can_skip_now 不是布尔值。");
+    if (typeof llmAnalysis.detail_trap !== "boolean") throw new Error("LLM 返回的 detail_trap 不是布尔值。");
     const checkQuestion = state.settings.mode === "learning" && importance === "S"
-      ? stringOrFallback(llmAnalysis.check_question, makeCheckQuestion(role, importance, domain, block.text))
+      ? requiredLlmString(llmAnalysis.check_question, "check_question")
       : "";
 
     return {
       importance,
       role,
-      required_depth: stringOrFallback(llmAnalysis.required_depth, fallback.required_depth),
-      can_skip_now: canSkipNow,
-      future_dependency: stringOrFallback(llmAnalysis.future_dependency, fallback.future_dependency),
-      why_it_matters: stringOrFallback(llmAnalysis.why_it_matters, fallback.why_it_matters),
-      minimum_mastery: stringOrFallback(llmAnalysis.minimum_mastery, fallback.minimum_mastery),
+      required_depth: requiredLlmString(llmAnalysis.required_depth, "required_depth"),
+      can_skip_now: llmAnalysis.can_skip_now,
+      future_dependency: requiredLlmString(llmAnalysis.future_dependency, "future_dependency"),
+      why_it_matters: requiredLlmString(llmAnalysis.why_it_matters, "why_it_matters"),
+      minimum_mastery: requiredLlmString(llmAnalysis.minimum_mastery, "minimum_mastery"),
       check_question: checkQuestion,
-      continue_status: stringOrFallback(llmAnalysis.continue_status, continueStatus(importance, canSkipNow)),
-      detail_trap: detailTrap,
+      continue_status: requiredLlmString(llmAnalysis.continue_status, "continue_status"),
+      detail_trap: llmAnalysis.detail_trap,
       source: "llm"
     };
   }
 
-  function stringOrFallback(value, fallback) {
-    return typeof value === "string" && value.trim().length > 0 ? value.trim() : fallback;
+  function requiredLlmString(value, field) {
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+    throw new Error(`LLM 结果缺少 ${field}。`);
+  }
+
+  function normalizeLlmMainline(value) {
+    if (!Array.isArray(value)) return [];
+    return value
+      .map((item) => normalizeText(String(item || "")))
+      .filter((item) => item.length > 0 && item.length <= 30)
+      .slice(0, 6);
   }
 
   function activeStage() {
     return state.settings.mode === "surfing" ? "course" : state.settings.stage;
-  }
-
-  function continueStatus(importance, canSkipNow) {
-    if (state.settings.mode === "surfing") {
-      if (importance === "S") return "必读：先看这里";
-      if (importance === "A") return "可扫读：抓住观点和结论";
-      if (importance === "B") return "低投入：知道大意即可";
-      return "可略过：不是当前阅读重点";
-    }
-    return canSkipNow ? "✅ 可以继续下一章" : importance === "S" ? "❌ 必须真正理解" : "✅ 理解最低标准后可以继续";
   }
 
   function detectDomain(pageText) {
@@ -626,14 +805,11 @@
   }
 
   function generatePagePrompt(payload = {}) {
-    const pageText = normalizeText(document.body?.innerText || "");
-    const domain = state.settings.domain === "auto" ? detectDomain(pageText) : state.settings.domain;
     const mode = payload.mode || state.settings.mode;
     const stage = mode === "surfing" ? "course" : payload.stage || activeStage();
     const title = normalizeText(document.title || document.querySelector("h1")?.innerText || "");
     const headings = collectPromptHeadings();
-    const mainline = DOMAIN_MAINLINES[domain] || inferMainlineFromText(pageText.toLowerCase());
-    const terms = extractPromptTerms(pageText, domain);
+    const terms = extractPromptTerms();
     const target = mode === "surfing"
       ? "我在快速判断这页是否值得投入时间"
       : `我当前处于「${STAGES[stage] || stage}」阶段学习这页内容`;
@@ -642,7 +818,7 @@
       : `优先围绕页面标题「${title || "当前网页"}」和正文高频概念判断注意力。`;
     const focus = terms.length > 0
       ? `重点关注这些概念是否构成后续依赖：${terms.join("、")}。`
-      : `重点关注${mainline.join("、")}这些主线要素。`;
+      : `重点关注页面标题「${title || "当前网页"}」中的核心概念是否构成后续依赖。`;
     const skipRule = mode === "surfing"
       ? "把背景铺垫、营销性描述、重复例子和低信息密度段落标为可扫读或可略过。"
       : "把暂时不阻塞理解的背景、例子、实现枝节和符号细节降级，避免把注意力花在细节陷阱上。";
@@ -684,7 +860,8 @@
     dialog.querySelector("[data-sln-prompt-generate]").addEventListener("click", async (event) => {
       const button = event.currentTarget;
       button.disabled = true;
-      button.textContent = "生成中";
+      button.innerHTML = `<span class="sln-button-spinner" aria-hidden="true"></span><span>生成中</span>`;
+      dialog.querySelector("p").insertAdjacentHTML("afterend", renderLoadingMarkup("生成提示词"));
       const prompt = generatePagePrompt({
         mode: state.settings.mode,
         stage: activeStage()
@@ -698,22 +875,19 @@
 
   function collectPromptHeadings() {
     const headings = Array.from(document.querySelectorAll("main h1, main h2, article h1, article h2, [role='main'] h1, [role='main'] h2, h1, h2"))
+      .filter((element) => !element.closest("#sln-sidebar,#sln-prompt-start,.sln-tooltip"))
       .map((element) => normalizeText(element.innerText || element.textContent || ""))
       .filter((text) => text.length >= 3 && text.length <= 80);
     return uniqueValues(headings).slice(0, 6);
   }
 
-  function extractPromptTerms(pageText, domain) {
-    const lower = pageText.toLowerCase();
-    const knownTerms = (DOMAIN_TERMS[domain] || [])
-      .filter((term) => lower.includes(term.toLowerCase()))
-      .slice(0, 8);
+  function extractPromptTerms() {
     const headingTerms = collectPromptHeadings()
       .flatMap((heading) => heading.split(/[\s,，:：/｜|()（）\-]+/))
       .map((term) => term.trim())
       .filter((term) => term.length >= 2 && term.length <= 24)
       .slice(0, 8);
-    return uniqueValues([...knownTerms, ...headingTerms]).slice(0, 8);
+    return uniqueValues(headingTerms).slice(0, 8);
   }
 
   function uniqueValues(values) {
@@ -724,119 +898,6 @@
       seen.add(key);
       return true;
     });
-  }
-
-  function detectRole(lower, tag) {
-    if (tag === "pre") return "实现细节";
-    for (const entry of ROLE_PATTERNS) {
-      if (countMatches(lower, entry.patterns) > 0) return entry.role;
-    }
-    return "背景知识";
-  }
-
-  function proofWeight(stage) {
-    return {
-      beginner: -3,
-      course: -1,
-      interview: 0,
-      engineering: -2,
-      math: 3,
-      research: 3
-    }[stage] || -1;
-  }
-
-  function implementationWeight(stage) {
-    return {
-      beginner: -2,
-      course: 0,
-      interview: 1,
-      engineering: 3,
-      math: -2,
-      research: 1
-    }[stage] || 0;
-  }
-
-  function toImportance(score) {
-    if (score >= 6) return "S";
-    if (score >= 3) return "A";
-    if (score >= 1) return "B";
-    return "C";
-  }
-
-  function requiredDepth(importance, role, stage) {
-    if (state.settings.mode === "surfing") {
-      if (importance === "S") return "快速读清楚主张、结论和它对全文的作用。";
-      if (importance === "A") return "扫读即可，抓住用途、例子或关键转折。";
-      if (importance === "B") return "低投入浏览，保留一个印象。";
-      return "当前可以跳过，不影响把握文章重点。";
-    }
-    if (importance === "S") return "必须能复述定义、解释直觉，并说明它如何连接后续知识。";
-    if (importance === "A") return "需要理解用途和关键假设，暂时不必掌握所有推导。";
-    if (importance === "B") return "知道它解决什么问题、何时会用到即可。";
-    if (role === "理论证明" && !["math", "research"].includes(stage)) return "当前只需知道结论，不必进入证明细节。";
-    return "当前可以跳过，保留一个用途标签即可。";
-  }
-
-  function dependencyMessage(importance, role, mainline, lower) {
-    if (importance === "S") return `这是主线节点，后续通常会依赖它进入 ${mainline.slice(1).join(" → ")}。`;
-    if (role === "理论证明") return "主要影响严谨性和研究深度，短期通常不阻塞应用层学习。";
-    if (role === "实现细节") return "会影响动手实现或性能调优，但通常不阻塞概念主线。";
-    if (mentionsDependency(lower)) return "文本显式包含前置或后续关系，建议记录它连接到哪里。";
-    return "暂未识别为强依赖节点。";
-  }
-
-  function whyItMatters(importance, role, stage) {
-    if (state.settings.mode === "surfing") {
-      if (importance === "S") return "这是当前页面最值得停留的重点，通常承载主张、结论或关键解释。";
-      if (importance === "A") return "它帮助你补齐上下文，但不需要深挖。";
-      if (importance === "B") return "它是辅助信息，避免在这里耗费过多注意力。";
-      return "它不影响你快速把握页面核心。";
-    }
-    if (importance === "S") return `在“${STAGES[stage]}”阶段，这是注意力主线，跳过会提高后续卡住概率。`;
-    if (importance === "A") return "它会帮助你推进当前章节，但可以先采用用途级理解。";
-    if (importance === "B") return "它提供局部上下文，不应消耗过多精力。";
-    if (role === "理论证明") return "这是高风险细节陷阱，容易在当前阶段过度消耗注意力。";
-    return "它不是当前阶段的主线投入对象。";
-  }
-
-  function minimumMastery(role, importance, stage) {
-    if (state.settings.mode === "surfing") {
-      if (importance === "S") return "读完后能说出：这段想表达什么、为什么值得看。";
-      if (importance === "A") return "知道它补充了什么信息即可。";
-      return "可以不记，继续看下一个重点。";
-    }
-    if (importance === "S") return "能用自己的话讲清楚：它是什么、为什么需要、后面哪里会用。";
-    if (role === "实现细节" && stage !== "engineering") return "知道这是实现/API/优化问题，先不追细节。";
-    if (role === "理论证明" && !["math", "research"].includes(stage)) return "知道结论成立及大致用途即可。";
-    if (importance === "A") return "能说出用途和一个典型场景。";
-    return "给它贴一个主题标签，继续往下学。";
-  }
-
-  function makeCheckQuestion(role, importance, domain, text) {
-    if (importance !== "S") return "";
-    const topic = extractTopic(text, domain);
-    if (role === "理论证明") return `请用自己的话说明：${topic} 的关键假设是什么？证明或推导想保证什么结论？`;
-    if (role === "实现细节") return `请说明：${topic} 解决了什么实现问题？如果这里不掌握，代码会卡在哪里？`;
-    return `请用自己的话回答：${topic} 是什么？为什么它是当前主线？后面哪一步会依赖它？`;
-  }
-
-  function extractTopic(text, domain) {
-    const mainline = DOMAIN_MAINLINES[domain] || DOMAIN_MAINLINES.ml;
-    const lower = text.toLowerCase();
-    const matched = mainline.find((item) => lower.includes(item.toLowerCase()));
-    if (matched) return matched;
-    const clean = text.replace(/[^\w\u4e00-\u9fa5\s-]/g, " ").replace(/\s+/g, " ").trim();
-    return clean.slice(0, 28) || "这个知识点";
-  }
-
-  function mentionsDependency(lower) {
-    return ["therefore", "depends on", "leads to", "prerequisite", "because", "so that", "因此", "依赖", "导致", "前置", "所以"].some((term) => lower.includes(term));
-  }
-
-  function inferMainlineFromText(lower) {
-    if (lower.includes("bellman") || lower.includes("policy") || lower.includes("reward")) return DOMAIN_MAINLINES.rl;
-    if (lower.includes("transformer") || lower.includes("backprop")) return DOMAIN_MAINLINES.dl;
-    return DOMAIN_MAINLINES.ml;
   }
 
   function renderBlocks(blocks) {
@@ -887,7 +948,7 @@
     const body = document.createElement("div");
     body.className = "sln-panel-body";
     body.appendChild(renderMeta(domain, blocks));
-    body.appendChild(renderMainline(domain));
+    body.appendChild(renderMainline());
     body.appendChild(renderCards(blocks));
     sidebar.appendChild(body);
 
@@ -917,9 +978,9 @@
     return wrapper;
   }
 
-  function renderMainline(domain) {
+  function renderMainline() {
     const wrapper = document.createElement("div");
-    const nodes = DOMAIN_MAINLINES[domain] || DOMAIN_MAINLINES.ml;
+    const nodes = state.currentMainline.length > 0 ? state.currentMainline : ["等待 LLM 主线"];
     wrapper.innerHTML = `<div class="sln-section-title">${state.settings.mode === "surfing" ? "阅读主线" : "知识依赖图"}</div>`;
     const line = document.createElement("div");
     line.className = "sln-mainline";

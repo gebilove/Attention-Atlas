@@ -1,0 +1,10 @@
+{
+  "name": "semantic-learning-navigator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "debug:loop": "node tools/debug-loop.mjs",
+    "debug:loop:attach": "node tools/debug-loop.mjs --no-launch"
+  }
+}

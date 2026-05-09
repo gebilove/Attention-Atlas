@@ -41,11 +41,17 @@ function saveAndNotify(options = {}) {
   chrome.storage.sync.set(settings, () => {
     chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
       if (!tab?.id) return;
-      chrome.tabs.sendMessage(tab.id, {
+      sendMessageToActiveTab(tab.id, {
         type: "SLN_SETTINGS_UPDATED",
         settings,
         forceRefresh: Boolean(options.forceRefresh)
       });
     });
+  });
+}
+
+function sendMessageToActiveTab(tabId, message) {
+  chrome.tabs.sendMessage(tabId, message, () => {
+    void chrome.runtime.lastError;
   });
 }

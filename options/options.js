@@ -1,12 +1,12 @@
 const DEFAULT_LLM_SETTINGS = {
-  enabled: false,
+  enabled: true,
   provider: "openai",
   endpoint: "https://api.openai.com/v1/chat/completions",
   model: "gpt-4.1-mini",
   apiKey: "",
   anthropicVersion: "2023-06-01",
   temperature: 0.2,
-  maxTokens: 1024,
+  maxTokens: 4096,
   globalPrompt: ""
 };
 
@@ -26,7 +26,6 @@ const PROVIDERS = {
 const PROMPT_LIBRARY_KEY = "slnPromptLibrary";
 
 const controls = {
-  enabled: document.querySelector("#enabled"),
   provider: document.querySelector("#provider"),
   endpoint: document.querySelector("#endpoint"),
   model: document.querySelector("#model"),
@@ -42,7 +41,6 @@ const controls = {
 
 chrome.storage.local.get({ slnLlmSettings: DEFAULT_LLM_SETTINGS }, (items) => {
   const settings = normalizeSettings(items.slnLlmSettings);
-  controls.enabled.checked = settings.enabled;
   controls.provider.value = settings.provider;
   controls.endpoint.value = settings.endpoint;
   controls.model.value = settings.model;
@@ -68,8 +66,10 @@ controls.save.addEventListener("click", saveSettings);
 controls.promptList.addEventListener("click", handlePromptManagerClick);
 controls.test.addEventListener("click", async () => {
   saveSettings("testing");
+  setButtonBusy(controls.test, true, "测试中");
   setStatus("正在测试连接...", "");
   chrome.runtime.sendMessage({ type: "SLN_TEST_LLM" }, (response) => {
+    setButtonBusy(controls.test, false);
     if (chrome.runtime.lastError) {
       setStatus(chrome.runtime.lastError.message, "error");
       return;
@@ -86,7 +86,7 @@ renderPromptManager();
 
 function saveSettings(reason = "manual") {
   const settings = {
-    enabled: controls.enabled.checked,
+    enabled: true,
     provider: controls.provider.value,
     endpoint: controls.endpoint.value.trim(),
     model: controls.model.value.trim(),
@@ -103,8 +103,18 @@ function saveSettings(reason = "manual") {
 }
 
 function setStatus(message, kind) {
-  controls.status.textContent = message;
+  controls.status.innerHTML = kind === "" && message ? `${escapeHtml(message)}<span aria-hidden="true"></span>` : escapeHtml(message);
   controls.status.dataset.kind = kind;
+}
+
+function setButtonBusy(button, busy, label = "") {
+  if (!button.dataset.idleText) button.dataset.idleText = button.textContent;
+  button.disabled = busy;
+  if (busy) {
+    button.innerHTML = `<span class="button-busy"><span class="spinner" aria-hidden="true"></span><span>${escapeHtml(label)}</span></span>`;
+    return;
+  }
+  button.textContent = button.dataset.idleText;
 }
 
 function normalizeSettings(rawSettings = {}) {
@@ -114,6 +124,7 @@ function normalizeSettings(rawSettings = {}) {
   return {
     ...DEFAULT_LLM_SETTINGS,
     ...rawSettings,
+    enabled: true,
     provider: normalizedProvider,
     endpoint: rawSettings.endpoint || defaults.endpoint,
     model: rawSettings.model || defaults.model

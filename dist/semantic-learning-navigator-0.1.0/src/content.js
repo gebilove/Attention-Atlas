@@ -109,7 +109,7 @@
     const domain = state.settings.domain === "auto" ? detectDomain(document.body.innerText) : state.settings.domain;
     state.currentDomain = domain;
     const stage = activeStage();
-    const elements = collectKnowledgeBlocks();
+    const elements = await waitForKnowledgeBlocks();
     const blocks = elements.map((element, index) => {
       const block = {
         id: `sln-${index + 1}`,
@@ -380,23 +380,123 @@
 
   function collectKnowledgeBlocks() {
     const selectors = [
-      "main h1", "main h2", "main h3", "main p", "main li", "main pre", "main blockquote", "main table",
-      "article h1", "article h2", "article h3", "article p", "article li", "article pre", "article blockquote", "article table",
-      "[role='main'] h1", "[role='main'] h2", "[role='main'] h3", "[role='main'] p", "[role='main'] li", "[role='main'] pre",
+      "h1", "h2", "h3", "h4", "p", "li", "pre", "blockquote", "table",
       ".math", ".katex", "mjx-container", "[data-mathml]",
-      "h1", "h2", "h3", "p", "pre", "blockquote", "table"
+      "section", "article", "div"
     ];
     const seen = new Set();
-    return Array.from(document.querySelectorAll(selectors.join(",")))
+    return collectContentRoots()
+      .flatMap((root) => Array.from(root.querySelectorAll(selectors.join(","))))
       .filter((element) => {
         if (seen.has(element)) return false;
         seen.add(element);
-        if (element.closest("#sln-sidebar,.sln-tooltip,nav,header,footer,aside,script,style")) return false;
-        const text = normalizeText(element.innerText || element.textContent || "");
-        const rect = element.getBoundingClientRect();
-        return text.length >= 24 && rect.width > 120 && rect.height > 12;
+        return isKnowledgeBlockCandidate(element);
       })
       .slice(0, 80);
+  }
+
+  async function waitForKnowledgeBlocks() {
+    let blocks = collectKnowledgeBlocks();
+    if (blocks.length > 0) return blocks;
+
+    await new Promise((resolve) => {
+      const observer = new MutationObserver(() => {
+        blocks = collectKnowledgeBlocks();
+        if (blocks.length > 0) {
+          observer.disconnect();
+          resolve();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+      window.setTimeout(() => {
+        observer.disconnect();
+        resolve();
+      }, 5000);
+    });
+
+    return blocks.length > 0 ? blocks : collectKnowledgeBlocks();
+  }
+
+  function collectContentRoots() {
+    const selectors = [
+      "main",
+      "article",
+      "[role='main']",
+      ".markdown-body",
+      ".prose",
+      ".content",
+      ".chapter",
+      ".chapter-content",
+      ".article-content",
+      ".doc-content",
+      ".post-content"
+    ];
+    const roots = Array.from(document.querySelectorAll(selectors.join(",")))
+      .filter((element) => !isExcludedContentElement(element));
+    return roots.length > 0 ? roots : [document.body];
+  }
+
+  function isKnowledgeBlockCandidate(element) {
+    if (isExcludedContentElement(element)) return false;
+    if (element.matches("button,input,select,textarea,label,svg,canvas,iframe,video,audio")) return false;
+
+    const text = normalizeText(element.innerText || element.textContent || "");
+    if (text.length < 24) return false;
+
+    const rect = element.getBoundingClientRect();
+    if (rect.width <= 120 || rect.height <= 12) return false;
+    if (isMostlyInteractive(element)) return false;
+    if (isContainerWithoutDirectText(element, text)) return false;
+
+    return true;
+  }
+
+  function isExcludedContentElement(element) {
+    return Boolean(element.closest([
+      "#sln-sidebar",
+      "#sln-prompt-start",
+      ".sln-tooltip",
+      "nav",
+      "header",
+      "footer",
+      "aside",
+      "script",
+      "style",
+      "noscript",
+      "[aria-hidden='true']",
+      "[hidden]"
+    ].join(",")));
+  }
+
+  function isMostlyInteractive(element) {
+    const interactiveText = Array.from(element.querySelectorAll("a,button,input,select,textarea"))
+      .map((item) => normalizeText(item.innerText || item.textContent || item.value || ""))
+      .join(" ");
+    const text = normalizeText(element.innerText || element.textContent || "");
+    return interactiveText.length > 0 && interactiveText.length / Math.max(text.length, 1) > 0.6;
+  }
+
+  function isContainerWithoutDirectText(element, text) {
+    if (!element.matches("div,section,article")) return false;
+    const directText = Array.from(element.childNodes)
+      .filter((node) => node.nodeType === Node.TEXT_NODE)
+      .map((node) => normalizeText(node.textContent || ""))
+      .join(" ");
+    if (directText.length >= 24) return false;
+
+    const childBlocks = Array.from(element.children).filter((child) => {
+      if (isExcludedContentElement(child)) return false;
+      if (!child.matches("h1,h2,h3,h4,p,li,pre,blockquote,table,section,article,div")) return false;
+      const childText = normalizeText(child.innerText || child.textContent || "");
+      return childText.length >= 24;
+    });
+
+    if (childBlocks.length >= 2) return true;
+    if (childBlocks.length === 1) {
+      const childText = normalizeText(childBlocks[0].innerText || childBlocks[0].textContent || "");
+      return childText.length / Math.max(text.length, 1) > 0.75;
+    }
+    return false;
   }
 
   function analyzeBlock(block, stage, domain) {
