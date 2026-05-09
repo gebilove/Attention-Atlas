@@ -2,6 +2,8 @@
 
 [中文说明](README.zh-CN.md)
 
+![Attention Atlas promotional image](assets/attention-atlas-hero-en.png)
+
 Attention Atlas is a browser extension for academic and technical reading. It does not try to summarize everything on a page. Its core job is learning attention allocation: mapping which knowledge blocks deserve deep study, which can be skimmed, which can wait, and which are safe to skip for your current goal.
 
 The extension is designed for high-intensity learners working through courses, papers, textbooks, PDFs, documentation, proofs, and implementation-heavy material. It marks page-level knowledge blocks, ranks them with S/A/B/C attention levels, and explains the minimum mastery needed to keep moving.
@@ -23,6 +25,8 @@ Each analyzed block can include its semantic role, required depth, skip recommen
 
 - Learning mode: for courses, textbooks, papers, PDFs, docs, and systematic study. It keeps a per-page checklist and uses active recall for S-level blocks.
 - Surfing mode: for news, blogs, public articles, and background browsing. It highlights what deserves attention without asking mastery questions.
+
+![Attention Atlas feature workflow](assets/attention-atlas-flow-en.png)
 
 ## Install locally
 
