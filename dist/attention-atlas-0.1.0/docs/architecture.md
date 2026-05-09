@@ -1,4 +1,4 @@
-# Semantic Learning Navigator Architecture
+# Attention Atlas Architecture
 
 ## Product Boundary
 

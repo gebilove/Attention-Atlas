@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Semantic Learning Navigator",
-  "description": "An attention allocation system for academic and technical learning.",
+  "name": "Attention Atlas",
+  "description": "Map where attention should go in academic and technical reading.",
   "version": "0.1.0",
   "permissions": [
     "storage",
@@ -13,7 +13,7 @@
   ],
   "action": {
     "default_popup": "popup/popup.html",
-    "default_title": "Learning Navigator"
+    "default_title": "Attention Atlas"
   },
   "options_ui": {
     "page": "options/options.html",

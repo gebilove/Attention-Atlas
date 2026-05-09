@@ -89,7 +89,7 @@ async function analyzeBlockChunk(settings, payload, blocks, range) {
     {
       role: "system",
       content: [
-        "你是 Semantic Learning Navigator 的知识结构定位引擎。",
+        "你是 Attention Atlas 的知识结构定位引擎。",
         "你的任务不是摘要，而是判断每个知识块在当前页面中的注意力投入等级。",
         "必须只返回 JSON，不要 Markdown，不要解释。",
         "importance 只能是 S/A/B/C。",

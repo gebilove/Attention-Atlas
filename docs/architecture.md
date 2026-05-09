@@ -1,4 +1,4 @@
-# Semantic Learning Navigator Architecture
+# Attention Atlas Architecture
 
 ## Product Boundary
 
@@ -8,7 +8,7 @@ The primary users are undergraduates, master's students, PhD students, and adjac
 
 ## Modes
 
-Semantic Learning Navigator has two product modes:
+Attention Atlas has two product modes:
 
 - Learning mode: systematic study for courses, papers, PDFs, textbooks, and technical docs. The output is about mastery, dependencies, minimum understanding, and whether the learner can continue. S-level blocks require active recall before they can be checked off.
 - Surfing mode: everyday reading and research-adjacent browsing. The output is about quickly locating the main point of a news article, blog, public post, or background material. It does not ask questions and does not enforce mastery.
