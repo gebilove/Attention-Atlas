@@ -1,7 +1,7 @@
 const DEFAULT_LLM_SETTINGS = {
   enabled: true,
   provider: "openai",
-  endpoint: "https://api.openai.com/v1/chat/completions",
+  baseUrl: "https://api.openai.com/v1",
   model: "gpt-4.1-mini",
   apiKey: "",
   anthropicVersion: "2023-06-01",
@@ -12,11 +12,13 @@ const DEFAULT_LLM_SETTINGS = {
 
 const PROVIDER_DEFAULTS = {
   openai: {
-    endpoint: "https://api.openai.com/v1/chat/completions",
+    baseUrl: "https://api.openai.com/v1",
+    path: "/chat/completions",
     model: "gpt-4.1-mini"
   },
   anthropic: {
-    endpoint: "https://api.anthropic.com/v1/messages",
+    baseUrl: "https://api.anthropic.com/v1",
+    path: "/messages",
     model: "claude-3-5-haiku-latest"
   }
 };
@@ -182,20 +184,40 @@ function normalizeLlmSettings(rawSettings = {}) {
   const provider = rawSettings.provider || (rawSettings.apiFormat === "messages" ? "anthropic" : "openai");
   const normalizedProvider = provider === "anthropic" ? "anthropic" : "openai";
   const defaults = PROVIDER_DEFAULTS[normalizedProvider];
+  const baseUrl = rawSettings.baseUrl
+    || deriveBaseUrlFromEndpoint(rawSettings.endpoint)
+    || defaults.baseUrl;
   return {
     ...DEFAULT_LLM_SETTINGS,
     ...rawSettings,
     enabled: true,
     provider: normalizedProvider,
-    endpoint: rawSettings.endpoint || defaults.endpoint,
+    baseUrl,
     model: rawSettings.model || defaults.model,
     anthropicVersion: rawSettings.anthropicVersion || DEFAULT_LLM_SETTINGS.anthropicVersion
   };
 }
 
+function deriveBaseUrlFromEndpoint(endpoint) {
+  if (!endpoint || typeof endpoint !== "string") return "";
+  return endpoint
+    .replace(/\/+$/, "")
+    .replace(/\/chat\/completions$/i, "")
+    .replace(/\/messages$/i, "");
+}
+
+function resolveEndpoint(settings) {
+  const provider = settings.provider === "anthropic" ? "anthropic" : "openai";
+  const path = PROVIDER_DEFAULTS[provider].path;
+  const base = String(settings.baseUrl || "").trim().replace(/\/+$/, "");
+  if (!base) throw new Error("LLM Base URL is required.");
+  if (/\/(chat\/completions|messages)$/i.test(base)) return base;
+  return `${base}${path}`;
+}
+
 function validateSettings(settings) {
   if (!["openai", "anthropic"].includes(settings.provider)) throw new Error("LLM provider must be OpenAI or Anthropic.");
-  if (!settings.endpoint) throw new Error("LLM endpoint is required.");
+  if (!settings.baseUrl) throw new Error("LLM Base URL is required.");
   if (!settings.model) throw new Error("LLM model is required.");
   if (settings.provider === "anthropic" && !settings.apiKey) throw new Error("Anthropic API key is required.");
 }
@@ -237,7 +259,7 @@ async function callAnthropicMessages(settings, messages, options = {}) {
   };
   if (system) body.system = system;
 
-  const response = await fetchWithTimeout(settings.endpoint, {
+  const response = await fetchWithTimeout(resolveEndpoint(settings), {
     method: "POST",
     headers,
     body: JSON.stringify(body)
@@ -264,7 +286,7 @@ async function postChatCompletions(settings, messages, useJsonMode) {
   };
   if (useJsonMode) body.response_format = { type: "json_object" };
 
-  const response = await fetchWithTimeout(settings.endpoint, {
+  const response = await fetchWithTimeout(resolveEndpoint(settings), {
     method: "POST",
     headers,
     body: JSON.stringify(body)

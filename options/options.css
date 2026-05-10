@@ -96,6 +96,37 @@ textarea {
   margin-top: 18px;
 }
 
+.field-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.field-row input {
+  flex: 1 1 auto;
+}
+
+.field-row button {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.hint {
+  min-height: 18px;
+  margin-top: 6px;
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.hint[data-kind="ok"] {
+  color: #0f766e;
+}
+
+.hint[data-kind="error"] {
+  color: #b91c1c;
+}
+
 button {
   min-height: 40px;
   padding: 0 14px;

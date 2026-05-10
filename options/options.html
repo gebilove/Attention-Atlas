@@ -16,17 +16,27 @@
       </header>
 
       <section class="panel">
-        <label for="provider">API Provider</label>
+        <label for="baseUrl">Base URL</label>
+        <input id="baseUrl" type="url" placeholder="https://api.openai.com/v1">
+
+        <label for="provider">API 格式</label>
         <select id="provider">
-          <option value="openai">OpenAI</option>
-          <option value="anthropic">Anthropic</option>
+          <option value="openai">OpenAI 格式（Chat Completions）</option>
+          <option value="anthropic">Anthropic 格式（Messages）</option>
         </select>
 
-        <label for="endpoint">API Endpoint</label>
-        <input id="endpoint" type="url" placeholder="https://api.openai.com/v1/chat/completions">
+        <div class="actions actions-inline">
+          <button id="test" class="secondary" type="button">测试连接</button>
+        </div>
+        <p id="testStatus" class="status" role="status"></p>
 
         <label for="model">Model</label>
-        <input id="model" type="text" placeholder="gpt-4.1-mini">
+        <div class="field-row">
+          <input id="model" type="text" list="modelOptions" placeholder="gpt-4.1-mini" autocomplete="off">
+          <button id="refreshModels" class="secondary" type="button">获取模型列表</button>
+        </div>
+        <datalist id="modelOptions"></datalist>
+        <p id="modelStatus" class="hint" role="status"></p>
 
         <label for="apiKey">API Key</label>
         <input id="apiKey" type="password" placeholder="sk-...；本地模型可留空">
@@ -42,7 +52,6 @@
 
         <div class="actions">
           <button id="save" class="primary" type="button">保存设置</button>
-          <button id="test" class="secondary" type="button">测试连接</button>
         </div>
 
         <p id="status" class="status" role="status"></p>
@@ -58,8 +67,9 @@
         <h2>说明</h2>
         <p>内容脚本只发送知识块文本和当前模式，不会把 API key 注入网页。请求由扩展 background service worker 发出。</p>
         <p>全局默认提示词会应用到所有网页；网站提示词按 origin 关联，例如同一个提示词可以同时作用于多个课程站点，并且优先级高于全局默认提示词。</p>
-        <p>OpenAI 会调用 Chat Completions，使用 <code>Authorization: Bearer</code>。Anthropic 会调用 Messages API，使用 <code>x-api-key</code> 与 <code>anthropic-version</code>。</p>
-        <p>切换 Provider 会自动填入对应默认 Endpoint 和 Model；如果你填了自定义代理地址，切换时不会覆盖。</p>
+        <p>Base URL 填到 <code>/v1</code> 即可，扩展会根据所选 API 格式自动拼接路径：OpenAI 格式追加 <code>/chat/completions</code>，Anthropic 格式追加 <code>/messages</code>。若已填完整 URL（以 <code>/chat/completions</code> 或 <code>/messages</code> 结尾）则原样使用。</p>
+        <p>OpenAI 格式使用 <code>Authorization: Bearer</code>；Anthropic 格式使用 <code>x-api-key</code> 与 <code>anthropic-version</code>。</p>
+        <p>切换 API 格式会自动填入对应默认 Base URL 和 Model；若你已填自定义代理地址，切换时不会覆盖。</p>
       </section>
     </main>
     <script src="options.js"></script>

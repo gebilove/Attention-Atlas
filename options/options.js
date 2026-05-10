@@ -1,7 +1,7 @@
 const DEFAULT_LLM_SETTINGS = {
   enabled: true,
   provider: "openai",
-  endpoint: "https://api.openai.com/v1/chat/completions",
+  baseUrl: "https://api.openai.com/v1",
   model: "gpt-4.1-mini",
   apiKey: "",
   anthropicVersion: "2023-06-01",
@@ -12,12 +12,12 @@ const DEFAULT_LLM_SETTINGS = {
 
 const PROVIDERS = {
   openai: {
-    endpoint: "https://api.openai.com/v1/chat/completions",
+    baseUrl: "https://api.openai.com/v1",
     model: "gpt-4.1-mini",
     apiKeyPlaceholder: "sk-...；本地兼容服务可留空"
   },
   anthropic: {
-    endpoint: "https://api.anthropic.com/v1/messages",
+    baseUrl: "https://api.anthropic.com/v1",
     model: "claude-3-5-haiku-latest",
     apiKeyPlaceholder: "sk-ant-..."
   }
@@ -27,14 +27,18 @@ const PROMPT_LIBRARY_KEY = "slnPromptLibrary";
 
 const controls = {
   provider: document.querySelector("#provider"),
-  endpoint: document.querySelector("#endpoint"),
+  baseUrl: document.querySelector("#baseUrl"),
   model: document.querySelector("#model"),
+  modelOptions: document.querySelector("#modelOptions"),
+  modelStatus: document.querySelector("#modelStatus"),
+  refreshModels: document.querySelector("#refreshModels"),
   apiKey: document.querySelector("#apiKey"),
   temperature: document.querySelector("#temperature"),
   maxTokens: document.querySelector("#maxTokens"),
   globalPrompt: document.querySelector("#globalPrompt"),
   save: document.querySelector("#save"),
   test: document.querySelector("#test"),
+  testStatus: document.querySelector("#testStatus"),
   promptList: document.querySelector("#promptList"),
   status: document.querySelector("#status")
 };
@@ -42,7 +46,7 @@ const controls = {
 chrome.storage.local.get({ slnLlmSettings: DEFAULT_LLM_SETTINGS }, (items) => {
   const settings = normalizeSettings(items.slnLlmSettings);
   controls.provider.value = settings.provider;
-  controls.endpoint.value = settings.endpoint;
+  controls.baseUrl.value = settings.baseUrl;
   controls.model.value = settings.model;
   controls.apiKey.value = settings.apiKey;
   controls.temperature.value = settings.temperature;
@@ -54,8 +58,9 @@ chrome.storage.local.get({ slnLlmSettings: DEFAULT_LLM_SETTINGS }, (items) => {
 controls.provider.addEventListener("change", () => {
   const provider = controls.provider.value;
   const previousProvider = provider === "openai" ? "anthropic" : "openai";
-  if (!controls.endpoint.value.trim() || controls.endpoint.value.trim() === PROVIDERS[previousProvider].endpoint) {
-    controls.endpoint.value = PROVIDERS[provider].endpoint;
+  const currentBase = controls.baseUrl.value.trim();
+  if (!currentBase || currentBase === PROVIDERS[previousProvider].baseUrl) {
+    controls.baseUrl.value = PROVIDERS[provider].baseUrl;
   }
   if (!controls.model.value.trim() || controls.model.value.trim() === PROVIDERS[previousProvider].model) {
     controls.model.value = PROVIDERS[provider].model;
@@ -64,20 +69,23 @@ controls.provider.addEventListener("change", () => {
 });
 controls.save.addEventListener("click", saveSettings);
 controls.promptList.addEventListener("click", handlePromptManagerClick);
+controls.refreshModels.addEventListener("click", refreshModelList);
+controls.baseUrl.addEventListener("change", () => clearModelList());
+controls.provider.addEventListener("change", () => clearModelList());
 controls.test.addEventListener("click", async () => {
   saveSettings("testing");
   setButtonBusy(controls.test, true, "测试中");
-  setStatus("正在测试连接...", "");
+  setTestStatus("正在测试连接...", "");
   chrome.runtime.sendMessage({ type: "SLN_TEST_LLM" }, (response) => {
     setButtonBusy(controls.test, false);
     if (chrome.runtime.lastError) {
-      setStatus(chrome.runtime.lastError.message, "error");
+      setTestStatus(chrome.runtime.lastError.message, "error");
       return;
     }
     if (response?.ok) {
-      setStatus(`连接成功：${response.model || "model ok"}`, "ok");
+      setTestStatus(`连接成功：${response.model || "model ok"}`, "ok");
     } else {
-      setStatus(response?.error || "连接失败", "error");
+      setTestStatus(response?.error || "连接失败", "error");
     }
   });
 });
@@ -88,7 +96,7 @@ function saveSettings(reason = "manual") {
   const settings = {
     enabled: true,
     provider: controls.provider.value,
-    endpoint: controls.endpoint.value.trim(),
+    baseUrl: controls.baseUrl.value.trim(),
     model: controls.model.value.trim(),
     apiKey: controls.apiKey.value.trim(),
     anthropicVersion: DEFAULT_LLM_SETTINGS.anthropicVersion,
@@ -107,6 +115,11 @@ function setStatus(message, kind) {
   controls.status.dataset.kind = kind;
 }
 
+function setTestStatus(message, kind) {
+  controls.testStatus.innerHTML = kind === "" && message ? `${escapeHtml(message)}<span aria-hidden="true"></span>` : escapeHtml(message);
+  controls.testStatus.dataset.kind = kind;
+}
+
 function setButtonBusy(button, busy, label = "") {
   if (!button.dataset.idleText) button.dataset.idleText = button.textContent;
   button.disabled = busy;
@@ -121,21 +134,102 @@ function normalizeSettings(rawSettings = {}) {
   const provider = rawSettings.provider || (rawSettings.apiFormat === "messages" ? "anthropic" : "openai");
   const normalizedProvider = provider === "anthropic" ? "anthropic" : "openai";
   const defaults = PROVIDERS[normalizedProvider];
+  const baseUrl = rawSettings.baseUrl || deriveBaseUrlFromEndpoint(rawSettings.endpoint) || defaults.baseUrl;
   return {
     ...DEFAULT_LLM_SETTINGS,
     ...rawSettings,
     enabled: true,
     provider: normalizedProvider,
-    endpoint: rawSettings.endpoint || defaults.endpoint,
+    baseUrl,
     model: rawSettings.model || defaults.model
   };
 }
 
+function deriveBaseUrlFromEndpoint(endpoint) {
+  if (!endpoint || typeof endpoint !== "string") return "";
+  return endpoint
+    .replace(/\/+$/, "")
+    .replace(/\/chat\/completions$/i, "")
+    .replace(/\/messages$/i, "");
+}
+
 function updateProviderHints(provider) {
   const defaults = PROVIDERS[provider] || PROVIDERS.openai;
-  controls.endpoint.placeholder = defaults.endpoint;
+  controls.baseUrl.placeholder = defaults.baseUrl;
   controls.model.placeholder = defaults.model;
   controls.apiKey.placeholder = defaults.apiKeyPlaceholder;
+}
+
+async function refreshModelList() {
+  const provider = controls.provider.value === "anthropic" ? "anthropic" : "openai";
+  const baseUrl = controls.baseUrl.value.trim();
+  const apiKey = controls.apiKey.value.trim();
+  if (!baseUrl) {
+    setModelStatus("请先填写 Base URL", "error");
+    return;
+  }
+  setButtonBusy(controls.refreshModels, true, "获取中");
+  setModelStatus("正在从 Base URL 获取模型列表...", "");
+  try {
+    const models = await fetchModelList({ provider, baseUrl, apiKey });
+    renderModelOptions(models);
+    if (models.length === 0) {
+      setModelStatus("接口返回 0 个模型", "error");
+    } else {
+      setModelStatus(`已获取 ${models.length} 个模型，点击输入框可选择`, "ok");
+    }
+  } catch (error) {
+    renderModelOptions([]);
+    setModelStatus(error.message || "获取模型列表失败", "error");
+  } finally {
+    setButtonBusy(controls.refreshModels, false);
+  }
+}
+
+async function fetchModelList({ provider, baseUrl, apiKey }) {
+  const url = `${baseUrl.replace(/\/+$/, "")}/models`;
+  const headers = { "Content-Type": "application/json" };
+  if (provider === "anthropic") {
+    if (!apiKey) throw new Error("Anthropic 接口需要 API Key 才能列出模型");
+    headers["x-api-key"] = apiKey;
+    headers["anthropic-version"] = DEFAULT_LLM_SETTINGS.anthropicVersion;
+    headers["anthropic-dangerous-direct-browser-access"] = "true";
+  } else if (apiKey) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  }
+  const response = await fetch(url, { method: "GET", headers });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`请求失败 ${response.status}: ${text.slice(0, 200)}`);
+  }
+  let payload;
+  try {
+    payload = JSON.parse(text);
+  } catch {
+    throw new Error("响应不是合法 JSON");
+  }
+  const data = Array.isArray(payload?.data) ? payload.data : Array.isArray(payload?.models) ? payload.models : [];
+  const ids = data
+    .map((item) => (typeof item === "string" ? item : item?.id || item?.name))
+    .filter((id) => typeof id === "string" && id.trim())
+    .map((id) => id.trim());
+  return Array.from(new Set(ids)).sort((a, b) => a.localeCompare(b));
+}
+
+function renderModelOptions(models) {
+  controls.modelOptions.innerHTML = models
+    .map((id) => `<option value="${escapeAttribute(id)}"></option>`)
+    .join("");
+}
+
+function clearModelList() {
+  controls.modelOptions.innerHTML = "";
+  setModelStatus("", "");
+}
+
+function setModelStatus(message, kind) {
+  controls.modelStatus.textContent = message;
+  controls.modelStatus.dataset.kind = kind;
 }
 
 async function renderPromptManager() {
