@@ -7,6 +7,7 @@ const DEFAULT_SETTINGS = {
 };
 
 const PROMPT_LIBRARY_KEY = "slnPromptLibrary";
+const SITE_SETTINGS_KEY = "slnSiteSettings";
 
 let promptLibrary = { version: 1, prompts: [] };
 let currentSite = "";
@@ -14,6 +15,7 @@ let currentPromptId = "";
 
 const controls = {
   enabled: document.querySelector("#enabled"),
+  siteAutoAnalyze: document.querySelector("#siteAutoAnalyze"),
   mode: Array.from(document.querySelectorAll("input[name='mode']")),
   stage: document.querySelector("#stage"),
   collapseC: document.querySelector("#collapseC"),
@@ -35,11 +37,14 @@ chrome.storage.sync.get(DEFAULT_SETTINGS, (settings) => {
   controls.showSidebar.checked = settings.showSidebar;
   syncModeUi(settings.mode);
   loadPromptForCurrentSite();
+  loadSiteAutoAnalyze();
 });
 
 ["enabled", "stage", "collapseC", "showSidebar"].forEach((key) => {
   controls[key].addEventListener("change", saveAndNotify);
 });
+
+controls.siteAutoAnalyze.addEventListener("change", saveSiteAutoAnalyze);
 
 controls.promptSelect.addEventListener("change", assignSelectedPrompt);
 controls.pagePrompt.addEventListener("change", savePagePromptAndNotify);
@@ -172,6 +177,7 @@ async function loadPromptForCurrentSite() {
     if (assigned) {
       currentPromptId = assigned.id;
       controls.pagePrompt.value = assigned.text || "";
+      hideNoPromptHint();
     } else {
       controls.pagePrompt.value = "";
       const legacyPrompt = await loadLegacyPagePrompt(tab?.url || "");
@@ -181,6 +187,9 @@ async function loadPromptForCurrentSite() {
         currentPromptId = prompt.id;
         controls.pagePrompt.value = prompt.text;
         await savePromptLibrary(promptLibrary);
+        hideNoPromptHint();
+      } else {
+        showNoPromptHint();
       }
     }
 
@@ -358,4 +367,49 @@ function escapeHtml(value) {
 
 function escapeAttribute(value) {
   return escapeHtml(value).replace(/`/g, "&#96;");
+}
+
+function loadSiteAutoAnalyze() {
+  chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+    const site = siteKey(tab?.url || "");
+    chrome.storage.local.get({ [SITE_SETTINGS_KEY]: {} }, (items) => {
+      const siteSettings = items[SITE_SETTINGS_KEY] || {};
+      const setting = siteSettings[site];
+      controls.siteAutoAnalyze.checked = setting ? setting.autoAnalyze === true : false;
+    });
+  });
+}
+
+function saveSiteAutoAnalyze() {
+  const autoAnalyze = controls.siteAutoAnalyze.checked;
+  chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+    const site = siteKey(tab?.url || "");
+    chrome.storage.local.get({ [SITE_SETTINGS_KEY]: {} }, (items) => {
+      const siteSettings = items[SITE_SETTINGS_KEY] || {};
+      siteSettings[site] = { ...siteSettings[site], autoAnalyze };
+      chrome.storage.local.set({ [SITE_SETTINGS_KEY]: siteSettings }, () => {
+        if (tab?.id) {
+          chrome.tabs.sendMessage(tab.id, {
+            type: "SLN_SITE_AUTO_ANALYZE_UPDATED",
+            autoAnalyze
+          }, () => chrome.runtime.lastError);
+        }
+      });
+    });
+  });
+}
+
+function showNoPromptHint() {
+  if (document.querySelector("#noPromptHint")) return;
+  const hint = document.createElement("p");
+  hint.id = "noPromptHint";
+  hint.className = "no-prompt-hint";
+  hint.textContent = "当前网站未设置提示词，点击「自动生成」或手动输入后开始分析。";
+  const section = controls.pagePrompt.closest(".prompt-section");
+  if (section) section.appendChild(hint);
+}
+
+function hideNoPromptHint() {
+  const hint = document.querySelector("#noPromptHint");
+  if (hint) hint.remove();
 }

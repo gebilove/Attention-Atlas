@@ -47,6 +47,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
 
+  if (message.type === "SLN_SET_BADGE") {
+    const tabId = sender.tab?.id;
+    const text = message.text || "";
+    if (tabId) {
+      chrome.action.setBadgeText({ text, tabId });
+      chrome.action.setBadgeBackgroundColor({ color: "#f59e0b", tabId });
+    }
+    sendResponse({ ok: true });
+    return false;
+  }
+
   return false;
 });
 

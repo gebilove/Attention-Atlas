@@ -9,6 +9,7 @@
   };
 
   const PROMPT_LIBRARY_KEY = "slnPromptLibrary";
+  const SITE_SETTINGS_KEY = "slnSiteSettings";
   const ANALYSIS_CACHE_VERSION = 2;
   const CONTENT_ANALYSIS_BATCH_SIZE = 10;
   const CONTENT_ANALYSIS_BATCH_TIMEOUT_MS = 75000;
@@ -58,10 +59,12 @@
       loadPagePrompt(() => {
         if (!state.settings.enabled) return;
         if (state.pagePrompt) {
-          run();
+          loadSiteAutoAnalyze((autoAnalyze) => {
+            if (autoAnalyze) run();
+          });
           return;
         }
-        renderPromptStartDialog();
+        notifyNoPrompt();
       });
     });
 
@@ -81,21 +84,34 @@
         loadPagePrompt(() => {
           if (!state.settings.enabled) return;
           if (!state.pagePrompt) {
-            renderPromptStartDialog();
+            notifyNoPrompt();
             return;
           }
           if (message.forceRefresh) {
             run({ forceRefresh: true });
             return;
           }
-          refreshExistingAnalysis(previousSettings);
+          loadSiteAutoAnalyze((autoAnalyze) => {
+            if (autoAnalyze) refreshExistingAnalysis(previousSettings);
+          });
         });
       }
+
+      if (message.type === "SLN_SITE_AUTO_ANALYZE_UPDATED") {
+        if (message.autoAnalyze && state.pagePrompt && state.settings.enabled) {
+          run({ forceRefresh: true });
+        } else if (!message.autoAnalyze) {
+          cleanup();
+        }
+        return false;
+      }
+
       return false;
     });
   }
 
   async function run(options = {}) {
+    chrome.runtime.sendMessage({ type: "SLN_SET_BADGE", text: "" });
     if (isPdfLikePage()) {
       await runPdfMode(options);
       return;
@@ -835,6 +851,10 @@
     ].join("\n");
   }
 
+  function notifyNoPrompt() {
+    chrome.runtime.sendMessage({ type: "SLN_SET_BADGE", text: "!" });
+  }
+
   function renderPromptStartDialog() {
     if (document.querySelector("#sln-prompt-start")) return;
     if (document.querySelector("#sln-sidebar")) return;
@@ -1326,6 +1346,16 @@
 
   function siteKey() {
     return location.origin;
+  }
+
+  function loadSiteAutoAnalyze(callback) {
+    chrome.storage.local.get({ [SITE_SETTINGS_KEY]: {} }, (items) => {
+      const siteSettings = items[SITE_SETTINGS_KEY] || {};
+      const setting = siteSettings[siteKey()];
+      // Default is false (auto-analyze disabled) unless explicitly enabled
+      const autoAnalyze = setting ? setting.autoAnalyze === true : false;
+      callback(autoAnalyze);
+    });
   }
 
   function saveProgress() {
